@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Installer KEMMI</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 50% 20%, #1c2050 0%, #141636 45%, #0a0a1c 100%);
+    color:#fff; padding:24px; overflow:hidden; position:relative;
+  }
+  .stars { position:fixed; inset:0; z-index:0; }
+  .star { position:absolute; background:#fff; border-radius:50%; opacity:.5;
+    animation:tw 3s ease-in-out infinite; }
+  @keyframes tw { 0%,100%{opacity:.2} 50%{opacity:.9} }
+  .card { position:relative; z-index:1; width:100%; max-width:380px; text-align:center;
+    background:rgba(255,255,255,.05); backdrop-filter:blur(20px);
+    border:1px solid rgba(255,255,255,.12); border-radius:32px; padding:40px 28px;
+    box-shadow:0 20px 60px rgba(0,0,0,.45); }
+  .logo { width:104px; height:104px; border-radius:26px; margin:0 auto 20px;
+    background:linear-gradient(135deg,#8b7bff,#5a4fcf); display:flex; align-items:center;
+    justify-content:center; font-size:52px; box-shadow:0 10px 30px rgba(123,107,255,.5); }
+  h1 { font-size:30px; font-weight:800; letter-spacing:-.5px; margin-bottom:6px; }
+  .ver { font-size:13px; color:rgba(255,255,255,.5); margin-bottom:24px; }
+  .desc { font-size:15px; line-height:1.5; color:rgba(255,255,255,.7); margin-bottom:30px; }
+  .btn { display:block; width:100%; padding:17px; border-radius:18px; text-decoration:none;
+    font-size:18px; font-weight:700; color:#fff;
+    background:linear-gradient(135deg,#34D399,#059669);
+    box-shadow:0 8px 24px rgba(5,150,105,.45); transition:transform .15s; }
+  .btn:active { transform:scale(.97); }
+  .steps { margin-top:26px; text-align:left; font-size:13px; color:rgba(255,255,255,.55);
+    line-height:1.7; }
+  .steps b { color:rgba(255,255,255,.85); }
+  .badge { display:inline-block; margin-top:18px; font-size:11px; color:rgba(255,255,255,.4); }
+</style>
+</head>
+<body>
+<div class="stars" id="stars"></div>
+<div class="card">
+  <div class="logo">💜</div>
+  <h1>KEMMI</h1>
+  <div class="ver">Version 3.1 · build 21</div>
+  <div class="desc">Ta compagne IA Live2D.<br>Appuie sur le bouton pour installer.</div>
+  <a class="btn" href="itms-services://?action=download-manifest&url=https://wayheme69.github.io/kemmi-install/manifest.plist">📲 Installer KEMMI</a>
+  <div class="steps">
+    <b>Après l'appui :</b><br>
+    1. Confirme « Installer » dans la fenêtre.<br>
+    2. L'app apparaît sur l'écran d'accueil.<br>
+    3. Réglages → Général → VPN et gestion de l'appareil → fais confiance à « DIGITAL APP LLC ».
+  </div>
+  <div class="badge">Digital App LLC · installation privée</div>
+</div>
+<script>
+  const s=document.getElementById('stars');
+  for(let i=0;i<60;i++){const d=document.createElement('div');d.className='star';
+    const sz=Math.random()*2.2+0.6;d.style.width=sz+'px';d.style.height=sz+'px';
+    d.style.left=Math.random()*100+'%';d.style.top=Math.random()*100+'%';
+    d.style.animationDelay=Math.random()*3+'s';s.appendChild(d);}
+</script>
+</body>
+</html>
