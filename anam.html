@@ -7,72 +7,81 @@
 <style>
   html,body{margin:0;padding:0;height:100%;width:100%;background:#e2e5e8;overflow:hidden;}
   #video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#e2e5e8;}
+  #st{position:absolute;top:6px;left:0;right:0;text-align:center;font:600 12px -apple-system,sans-serif;
+      color:#333;background:rgba(255,255,255,.55);padding:3px 0;z-index:9;}
 </style>
 </head>
 <body>
 <video id="video" autoplay playsinline muted></video>
-<script type="module">
-import { createClient } from 'https://esm.sh/@anam-ai/js-sdk';
+<div id="st">init…</div>
+<script>
+  // ── Tout en script NORMAL : window.kemmi* défini IMMÉDIATEMENT (pas d'attente module).
+  const TOKEN_URL = "https://erclbrmnusivjmevwnsq.supabase.co/functions/v1/anam-session-token";
+  const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyY2xicm1udXNpdmptZXZ3bnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NTEwNzEsImV4cCI6MjA4MjEyNzA3MX0.ul9cNCTscgfVR63PA802Yusu6nRH1289ruMwaoZImLw";
+  const MAX_SESSION_MS = 150000;
 
-const TOKEN_URL = "https://erclbrmnusivjmevwnsq.supabase.co/functions/v1/anam-session-token";
-const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyY2xicm1udXNpdmptZXZ3bnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NTEwNzEsImV4cCI6MjA4MjEyNzA3MX0.ul9cNCTscgfVR63PA802Yusu6nRH1289ruMwaoZImLw";
-const MAX_SESSION_MS = 150000;          // backstop sécurité (2,5 min, limite plan gratuit)
+  let sdk = null, client = null, connecting = false, pendingText = null, maxTimer = null;
 
-let client = null;
-let maxTimer = null;
+  function setStatus(t){ try { document.getElementById('st').textContent = t; } catch(e){} }
+  function notify(type, data){
+    try { window.webkit?.messageHandlers?.kemmi?.postMessage(JSON.stringify({type, data: data||""})); } catch(e){}
+  }
 
-function notify(type, data){
-  try { window.webkit?.messageHandlers?.kemmi?.postMessage(JSON.stringify({type, data: data||""})); }
-  catch(e){ /* hors app : ignore */ }
-}
+  async function getToken(){
+    const r = await fetch(TOKEN_URL, { method:"POST", headers:{ Authorization:`Bearer ${ANON}`, "Content-Type":"application/json" }});
+    const j = await r.json();
+    if (!j.sessionToken) throw new Error("token: " + JSON.stringify(j).slice(0,80));
+    return j.sessionToken;
+  }
 
-async function getToken(){
-  const r = await fetch(TOKEN_URL, {
-    method:"POST",
-    headers:{ Authorization:`Bearer ${ANON}`, "Content-Type":"application/json" }
-  });
-  const j = await r.json();
-  if (!j.sessionToken) throw new Error("no token: " + JSON.stringify(j));
-  return j.sessionToken;
-}
-
-// Démarre la session (connexion = début facturation)
-window.kemmiStart = async function(){
-  try {
-    if (client && client.isStreaming && client.isStreaming()) { notify("ready"); return true; }
-    const token = await getToken();
-    client = createClient(token, { disableInputAudio: true });   // 100% texte : AUCUN micro
-    try { client.addListener('VIDEO_PLAY_STARTED', ()=> notify("playing")); } catch(e){}
-    try { client.addListener('CONNECTION_CLOSED', ()=> notify("closed")); } catch(e){}
-    await client.streamToVideoElement('video');
-    // backstop sécurité : coupe tout seul si jamais l'app oublie
-    clearTimeout(maxTimer);
-    maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
-    notify("ready");
-    return true;
-  } catch(e){ notify("error", String(e)); return false; }
-};
-
-// Lui fait dire le texte de Claude
-window.kemmiSpeak = async function(text){
-  try {
-    if (!client || !(client.isStreaming && client.isStreaming())) {
-      const ok = await window.kemmiStart();
-      if (!ok) return;
+  function flush(){
+    if (pendingText && client){
+      const t = pendingText; pendingText = null;
+      client.talk(t).catch(e => { setStatus("ERR talk: " + e.message); notify("error", String(e)); });
     }
-    await client.talk(text);
-  } catch(e){ notify("error", String(e)); }
-};
+  }
 
-// Coupe la session (arrête la facturation)
-window.kemmiStop = async function(){
-  clearTimeout(maxTimer);
-  try { if (client){ await client.stopStreaming(); } } catch(e){}
-  client = null;
-  notify("closed");
-};
+  async function connect(){
+    if (connecting || client) return;
+    if (!sdk){ setStatus("SDK pas prêt…"); return; }
+    connecting = true; setStatus("connexion…");
+    try {
+      const token = await getToken();
+      client = sdk.createClient(token, { disableInputAudio: true });
+      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ setStatus("EN DIRECT ✓"); notify("playing"); flush(); }); } catch(e){}
+      try { client.addListener('CONNECTION_CLOSED', ()=>{ notify("closed"); client=null; setStatus("fermée"); }); } catch(e){}
+      await client.streamToVideoElement('video');
+      clearTimeout(maxTimer); maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
+      notify("ready");
+    } catch(e){ setStatus("ERR connect: " + e.message); notify("error", String(e)); client = null; }
+    connecting = false;
+  }
 
-notify("loaded");
+  window.kemmiSpeak = async function(text){
+    pendingText = text;
+    setStatus("reçu: " + String(text||"").slice(0,18));
+    if (!sdk){ return; }                       // SDK charge encore -> sera traité à la fin du chargement
+    if (client){ flush(); }                    // déjà connecté -> parle
+    else if (!connecting){ await connect(); }  // pas connecté -> connecte (flush sur 'playing')
+  };
+
+  window.kemmiStop = async function(){
+    clearTimeout(maxTimer);
+    try { if (client) await client.stopStreaming(); } catch(e){}
+    client = null; pendingText = null;
+    notify("closed"); setStatus("fermée");
+  };
+
+  // ── Chargement du SDK via import() dynamique (marche en script normal).
+  (async () => {
+    setStatus("chargement SDK…");
+    try {
+      sdk = await import("https://esm.sh/@anam-ai/js-sdk");
+      setStatus("SDK chargé ✓");
+      notify("loaded");
+      if (pendingText) await connect();        // un message attendait -> connecte + parle
+    } catch(e){ setStatus("ERREUR SDK: " + e.message); notify("error", "sdk:" + String(e)); }
+  })();
 </script>
 </body>
 </html>
