@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>KEMMI Avatar</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;width:100%;background:#e2e5e8;overflow:hidden;}
+  #video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#e2e5e8;}
+</style>
+</head>
+<body>
+<video id="video" autoplay playsinline muted></video>
+<script type="module">
+import { createClient } from 'https://esm.sh/@anam-ai/js-sdk';
+
+const TOKEN_URL = "https://erclbrmnusivjmevwnsq.supabase.co/functions/v1/anam-session-token";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyY2xicm1udXNpdmptZXZ3bnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NTEwNzEsImV4cCI6MjA4MjEyNzA3MX0.ul9cNCTscgfVR63PA802Yusu6nRH1289ruMwaoZImLw";
+const MAX_SESSION_MS = 150000;          // backstop sécurité (2,5 min, limite plan gratuit)
+
+let client = null;
+let maxTimer = null;
+
+function notify(type, data){
+  try { window.webkit?.messageHandlers?.kemmi?.postMessage(JSON.stringify({type, data: data||""})); }
+  catch(e){ /* hors app : ignore */ }
+}
+
+async function getToken(){
+  const r = await fetch(TOKEN_URL, {
+    method:"POST",
+    headers:{ Authorization:`Bearer ${ANON}`, "Content-Type":"application/json" }
+  });
+  const j = await r.json();
+  if (!j.sessionToken) throw new Error("no token: " + JSON.stringify(j));
+  return j.sessionToken;
+}
+
+// Démarre la session (connexion = début facturation)
+window.kemmiStart = async function(){
+  try {
+    if (client && client.isStreaming && client.isStreaming()) { notify("ready"); return true; }
+    const token = await getToken();
+    client = createClient(token);
+    try { client.addListener('VIDEO_PLAY_STARTED', ()=> notify("playing")); } catch(e){}
+    try { client.addListener('CONNECTION_CLOSED', ()=> notify("closed")); } catch(e){}
+    await client.streamToVideoElement('video');
+    try { client.muteInputAudio(); } catch(e){}   // chat écrit : pas de micro
+    // backstop sécurité : coupe tout seul si jamais l'app oublie
+    clearTimeout(maxTimer);
+    maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
+    notify("ready");
+    return true;
+  } catch(e){ notify("error", String(e)); return false; }
+};
+
+// Lui fait dire le texte de Claude
+window.kemmiSpeak = async function(text){
+  try {
+    if (!client || !(client.isStreaming && client.isStreaming())) {
+      const ok = await window.kemmiStart();
+      if (!ok) return;
+    }
+    await client.talk(text);
+  } catch(e){ notify("error", String(e)); }
+};
+
+// Coupe la session (arrête la facturation)
+window.kemmiStop = async function(){
+  clearTimeout(maxTimer);
+  try { if (client){ await client.stopStreaming(); } } catch(e){}
+  client = null;
+  notify("closed");
+};
+
+notify("loaded");
+</script>
+</body>
+</html>
