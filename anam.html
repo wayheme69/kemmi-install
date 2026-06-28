@@ -40,19 +40,30 @@
   }
 
   // Décode NOTRE son (mp3/aac) -> PCM 24kHz mono Int16 -> on le pousse à Anam (lip-sync).
-  async function feedAudio(){
+  function feedAudio(){
     if (!pendingAudio || !client) return;
     const b64 = pendingAudio; pendingAudio = null;
     try {
       setStatus("5·envoi audio…");
-      const pcm = b64ToBytes(b64);              // PCM brut 24kHz 16-bit mono -> AUCUN décodage (fini le blocage 1er message)
+      const pcm = b64ToBytes(b64);              // PCM brut 24kHz 16-bit mono -> AUCUN décodage
       const stream = client.createAgentAudioInputStream({ encoding:'pcm_s16le', sampleRate:24000, channels:1 });
-      const CHUNK = 48000;                      // ~1s par paquet
-      for (let i=0;i<pcm.length;i+=CHUNK){ stream.sendAudioChunk(pcm.subarray(i, i+CHUNK)); }
-      stream.endSequence();
-      notify("speaking");                       // signal à l'app : elle commence à parler -> démarre le texte SYNCHRO
-      const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{});
-      showVideo(true); setStatus("EN DIRECT ✓"); hideStatusSoon();
+      const CHUNK_MS = 200;
+      const CHUNK = Math.floor(24000 * CHUNK_MS / 1000) * 2;   // 0.2s en octets (16-bit mono)
+      let off = 0, first = true;
+      const sendNext = () => {
+        if (!client) return;
+        if (off >= pcm.length){ try{ stream.endSequence(); }catch(e){} return; }
+        try { stream.sendAudioChunk(pcm.subarray(off, off + CHUNK)); }
+        catch(e){ setStatus("ERR audio: "+(e.message||e)); notify("error", String(e)); return; }
+        off += CHUNK;
+        if (first){ first = false;
+          notify("speaking");                   // dès le 1er paquet -> texte synchro
+          const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{});
+          showVideo(true); setStatus("EN DIRECT ✓"); hideStatusSoon();
+        }
+        setTimeout(sendNext, CHUNK_MS * 0.9);    // au rythme réel (léger avance) -> pas de rafale, plus fluide
+      };
+      sendNext();
     } catch(e){ setStatus("ERR audio: " + (e.message||e)); notify("error", String(e)); }
   }
 
