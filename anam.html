@@ -44,35 +44,45 @@
     if (!pendingAudio || !client) return;
     const b64 = pendingAudio; pendingAudio = null;
     try {
+      setStatus("5·decode…");
       const bytes = b64ToBytes(b64);
-      const buf = await getCtx().decodeAudioData(bytes.buffer);   // décodé + rééchantillonné à 24kHz
+      const buf = await getCtx().decodeAudioData(bytes.buffer.slice(0));   // décodé + rééchantillonné à 24kHz
+      setStatus("6·pcm " + (Math.round(buf.duration*10)/10) + "s");
       const f32 = buf.getChannelData(0);
       const i16 = new Int16Array(f32.length);
       for (let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); i16[i]= s<0 ? s*0x8000 : s*0x7FFF; }
       const pcm = new Uint8Array(i16.buffer);
+      setStatus("7·envoi audio…");
       const stream = client.createAgentAudioInputStream({ encoding:'pcm_s16le', sampleRate:24000, channels:1 });
       const CHUNK = 48000;                                         // ~1s par paquet
       for (let i=0;i<pcm.length;i+=CHUNK){ stream.sendAudioChunk(pcm.subarray(i, i+CHUNK)); }
       stream.endSequence();
       const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{});
       showVideo(true); setStatus("EN DIRECT ✓"); hideStatusSoon();
-    } catch(e){ setStatus("ERR audio: " + e.message); notify("error", String(e)); }
+    } catch(e){ setStatus("ERR audio: " + (e.message||e)); notify("error", String(e)); }
   }
 
   async function connect(){
     if (connecting || client) return;
     if (!sdk){ setStatus("SDK pas prêt…"); return; }
-    connecting = true; setStatus("connexion…");
+    connecting = true;
     try {
+      setStatus("1·token…");
       const token = await getToken();
+      setStatus("2·client…");
       client = sdk.createClient(token, { disableInputAudio: true });
-      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{}); notify("playing"); }); } catch(e){}
+      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{}); showVideo(true); notify("playing"); }); } catch(e){}
       try { client.addListener('CONNECTION_CLOSED', ()=>{ showVideo(false); notify("closed"); client=null; }); } catch(e){}
-      await client.streamToVideoElement('video');
+      setStatus("3·stream…");
+      await Promise.race([
+        client.streamToVideoElement('video'),
+        new Promise((_,rej)=> setTimeout(()=>rej(new Error("stream timeout 20s")), 20000))
+      ]);
+      setStatus("4·connecté");
       clearTimeout(maxTimer); maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
       notify("ready");
       await feedAudio();                                           // un son attendait -> on le pousse
-    } catch(e){ setStatus("ERR connect: " + e.message); notify("error", String(e)); client = null; }
+    } catch(e){ setStatus("ERR connect: " + (e.message||e)); notify("error", String(e)); client = null; }
     connecting = false;
   }
 
