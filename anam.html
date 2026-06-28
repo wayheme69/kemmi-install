@@ -41,11 +41,10 @@ window.kemmiStart = async function(){
   try {
     if (client && client.isStreaming && client.isStreaming()) { notify("ready"); return true; }
     const token = await getToken();
-    client = createClient(token);
+    client = createClient(token, { disableInputAudio: true });   // 100% texte : AUCUN micro
     try { client.addListener('VIDEO_PLAY_STARTED', ()=> notify("playing")); } catch(e){}
     try { client.addListener('CONNECTION_CLOSED', ()=> notify("closed")); } catch(e){}
     await client.streamToVideoElement('video');
-    try { client.muteInputAudio(); } catch(e){}   // chat écrit : pas de micro
     // backstop sécurité : coupe tout seul si jamais l'app oublie
     clearTimeout(maxTimer);
     maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
