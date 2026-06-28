@@ -7,8 +7,8 @@
 <style>
   html,body{margin:0;padding:0;height:100%;width:100%;background:#e2e5e8;overflow:hidden;}
   #poster,#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
-  #poster{z-index:1;}                                  /* sa photo, toujours visible au repos */
-  #video{z-index:2;opacity:0;transition:opacity .45s ease;background:transparent;} /* avatar, fondu quand elle parle */
+  #poster{z-index:1;}                                                /* sa photo, au repos */
+  #video{z-index:2;opacity:0;transition:opacity .45s ease;background:transparent;}  /* avatar quand elle parle */
   #st{position:absolute;top:6px;left:0;right:0;text-align:center;font:600 11px -apple-system,sans-serif;
       color:#333;background:rgba(255,255,255,.5);padding:2px 0;z-index:9;transition:opacity .4s;}
 </style>
@@ -22,14 +22,15 @@
   const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyY2xicm1udXNpdmptZXZ3bnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NTEwNzEsImV4cCI6MjA4MjEyNzA3MX0.ul9cNCTscgfVR63PA802Yusu6nRH1289ruMwaoZImLw";
   const MAX_SESSION_MS = 150000;
 
-  let sdk = null, client = null, connecting = false, pendingText = null, maxTimer = null;
+  let sdk = null, client = null, connecting = false, pendingAudio = null, maxTimer = null, audioCtx = null;
   const $ = id => document.getElementById(id);
 
   function setStatus(t){ try { const e=$('st'); e.textContent=t; e.style.opacity=1; } catch(e){} }
+  function hideStatusSoon(){ setTimeout(()=>{ try{ $('st').style.opacity=0; }catch(e){} }, 1500); }
   function showVideo(on){ try { $('video').style.opacity = on ? 1 : 0; } catch(e){} }
-  function notify(type, data){
-    try { window.webkit?.messageHandlers?.kemmi?.postMessage(JSON.stringify({type, data: data||""})); } catch(e){}
-  }
+  function notify(type, data){ try { window.webkit?.messageHandlers?.kemmi?.postMessage(JSON.stringify({type, data: data||""})); } catch(e){} }
+  function b64ToBytes(b64){ const bin=atob(b64), n=bin.length, u=new Uint8Array(n); for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i); return u; }
+  function getCtx(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate: 24000 }); return audioCtx; }
 
   async function getToken(){
     const r = await fetch(TOKEN_URL, { method:"POST", headers:{ Authorization:`Bearer ${ANON}`, "Content-Type":"application/json" }});
@@ -38,11 +39,24 @@
     return j.sessionToken;
   }
 
-  function flush(){
-    if (pendingText && client){
-      const t = pendingText; pendingText = null;
-      client.talk(t).catch(e => { setStatus("ERR talk: " + e.message); notify("error", String(e)); });
-    }
+  // Décode NOTRE son (mp3/aac) -> PCM 24kHz mono Int16 -> on le pousse à Anam (lip-sync).
+  async function feedAudio(){
+    if (!pendingAudio || !client) return;
+    const b64 = pendingAudio; pendingAudio = null;
+    try {
+      const bytes = b64ToBytes(b64);
+      const buf = await getCtx().decodeAudioData(bytes.buffer);   // décodé + rééchantillonné à 24kHz
+      const f32 = buf.getChannelData(0);
+      const i16 = new Int16Array(f32.length);
+      for (let i=0;i<f32.length;i++){ let s=Math.max(-1,Math.min(1,f32[i])); i16[i]= s<0 ? s*0x8000 : s*0x7FFF; }
+      const pcm = new Uint8Array(i16.buffer);
+      const stream = client.createAgentAudioInputStream({ encoding:'pcm_s16le', sampleRate:24000, channels:1 });
+      const CHUNK = 48000;                                         // ~1s par paquet
+      for (let i=0;i<pcm.length;i+=CHUNK){ stream.sendAudioChunk(pcm.subarray(i, i+CHUNK)); }
+      stream.endSequence();
+      const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{});
+      showVideo(true); setStatus("EN DIRECT ✓"); hideStatusSoon();
+    } catch(e){ setStatus("ERR audio: " + e.message); notify("error", String(e)); }
   }
 
   async function connect(){
@@ -52,44 +66,36 @@
     try {
       const token = await getToken();
       client = sdk.createClient(token, { disableInputAudio: true });
-      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{
-        const v = $('video'); v.muted = false; v.volume = 1.0; v.play().catch(()=>{});
-        showVideo(true);                                  // fondu photo -> vidéo
-        notify("playing"); flush();
-        setStatus("EN DIRECT ✓");
-        setTimeout(()=>{ try{ $('st').style.opacity = 0; }catch(e){} }, 1500);  // cache le statut
-      }); } catch(e){}
+      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{}); notify("playing"); }); } catch(e){}
       try { client.addListener('CONNECTION_CLOSED', ()=>{ showVideo(false); notify("closed"); client=null; }); } catch(e){}
       await client.streamToVideoElement('video');
       clearTimeout(maxTimer); maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
       notify("ready");
+      await feedAudio();                                           // un son attendait -> on le pousse
     } catch(e){ setStatus("ERR connect: " + e.message); notify("error", String(e)); client = null; }
     connecting = false;
   }
 
-  window.kemmiSpeak = async function(text){
-    pendingText = text;
+  // L'app envoie NOTRE son (base64 mp3/aac d'OpenAI TTS) -> elle le dit avec lip-sync.
+  window.kemmiSpeakAudio = async function(base64audio){
+    pendingAudio = base64audio;
     if (!sdk){ setStatus("chargement…"); return; }
-    if (client){ flush(); }
+    if (client){ await feedAudio(); }
     else if (!connecting){ await connect(); }
   };
 
   window.kemmiStop = async function(){
-    clearTimeout(maxTimer);
-    showVideo(false);
+    clearTimeout(maxTimer); showVideo(false);
     try { if (client) await client.stopStreaming(); } catch(e){}
-    client = null; pendingText = null;
-    notify("closed");
+    client = null; pendingAudio = null; notify("closed");
   };
 
   (async () => {
     setStatus("chargement…");
     try {
       sdk = await import("https://esm.sh/@anam-ai/js-sdk");
-      setStatus("prêt");
-      setTimeout(()=>{ try{ $('st').style.opacity = 0; }catch(e){} }, 1200);
-      notify("loaded");
-      if (pendingText) await connect();
+      setStatus("prêt"); hideStatusSoon(); notify("loaded");
+      if (pendingAudio) await connect();
     } catch(e){ setStatus("ERREUR SDK: " + e.message); notify("error", "sdk:" + String(e)); }
   })();
 </script>
