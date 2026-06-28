@@ -6,23 +6,27 @@
 <title>KEMMI Avatar</title>
 <style>
   html,body{margin:0;padding:0;height:100%;width:100%;background:#e2e5e8;overflow:hidden;}
-  #video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#e2e5e8;}
-  #st{position:absolute;top:6px;left:0;right:0;text-align:center;font:600 12px -apple-system,sans-serif;
-      color:#333;background:rgba(255,255,255,.55);padding:3px 0;z-index:9;}
+  #poster,#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  #poster{z-index:1;}                                  /* sa photo, toujours visible au repos */
+  #video{z-index:2;opacity:0;transition:opacity .45s ease;background:transparent;} /* avatar, fondu quand elle parle */
+  #st{position:absolute;top:6px;left:0;right:0;text-align:center;font:600 11px -apple-system,sans-serif;
+      color:#333;background:rgba(255,255,255,.5);padding:2px 0;z-index:9;transition:opacity .4s;}
 </style>
 </head>
 <body>
+<img id="poster" src="avatar_poster.jpg" alt=""/>
 <video id="video" autoplay playsinline></video>
 <div id="st">init…</div>
 <script>
-  // ── Tout en script NORMAL : window.kemmi* défini IMMÉDIATEMENT (pas d'attente module).
   const TOKEN_URL = "https://erclbrmnusivjmevwnsq.supabase.co/functions/v1/anam-session-token";
   const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyY2xicm1udXNpdmptZXZ3bnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NTEwNzEsImV4cCI6MjA4MjEyNzA3MX0.ul9cNCTscgfVR63PA802Yusu6nRH1289ruMwaoZImLw";
   const MAX_SESSION_MS = 150000;
 
   let sdk = null, client = null, connecting = false, pendingText = null, maxTimer = null;
+  const $ = id => document.getElementById(id);
 
-  function setStatus(t){ try { document.getElementById('st').textContent = t; } catch(e){} }
+  function setStatus(t){ try { const e=$('st'); e.textContent=t; e.style.opacity=1; } catch(e){} }
+  function showVideo(on){ try { $('video').style.opacity = on ? 1 : 0; } catch(e){} }
   function notify(type, data){
     try { window.webkit?.messageHandlers?.kemmi?.postMessage(JSON.stringify({type, data: data||""})); } catch(e){}
   }
@@ -49,12 +53,13 @@
       const token = await getToken();
       client = sdk.createClient(token, { disableInputAudio: true });
       try { client.addListener('VIDEO_PLAY_STARTED', ()=>{
-        const v = document.getElementById('video');
-        v.muted = false; v.volume = 1.0;        // RÉACTIVE le son de l'avatar
-        v.play().catch(()=>{});
-        setStatus("EN DIRECT ✓ (son ON)"); notify("playing"); flush();
+        const v = $('video'); v.muted = false; v.volume = 1.0; v.play().catch(()=>{});
+        showVideo(true);                                  // fondu photo -> vidéo
+        notify("playing"); flush();
+        setStatus("EN DIRECT ✓");
+        setTimeout(()=>{ try{ $('st').style.opacity = 0; }catch(e){} }, 1500);  // cache le statut
       }); } catch(e){}
-      try { client.addListener('CONNECTION_CLOSED', ()=>{ notify("closed"); client=null; setStatus("fermée"); }); } catch(e){}
+      try { client.addListener('CONNECTION_CLOSED', ()=>{ showVideo(false); notify("closed"); client=null; }); } catch(e){}
       await client.streamToVideoElement('video');
       clearTimeout(maxTimer); maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
       notify("ready");
@@ -64,27 +69,27 @@
 
   window.kemmiSpeak = async function(text){
     pendingText = text;
-    setStatus("reçu: " + String(text||"").slice(0,18));
-    if (!sdk){ return; }                       // SDK charge encore -> sera traité à la fin du chargement
-    if (client){ flush(); }                    // déjà connecté -> parle
-    else if (!connecting){ await connect(); }  // pas connecté -> connecte (flush sur 'playing')
+    if (!sdk){ setStatus("chargement…"); return; }
+    if (client){ flush(); }
+    else if (!connecting){ await connect(); }
   };
 
   window.kemmiStop = async function(){
     clearTimeout(maxTimer);
+    showVideo(false);
     try { if (client) await client.stopStreaming(); } catch(e){}
     client = null; pendingText = null;
-    notify("closed"); setStatus("fermée");
+    notify("closed");
   };
 
-  // ── Chargement du SDK via import() dynamique (marche en script normal).
   (async () => {
-    setStatus("chargement SDK…");
+    setStatus("chargement…");
     try {
       sdk = await import("https://esm.sh/@anam-ai/js-sdk");
-      setStatus("SDK chargé ✓");
+      setStatus("prêt");
+      setTimeout(()=>{ try{ $('st').style.opacity = 0; }catch(e){} }, 1200);
       notify("loaded");
-      if (pendingText) await connect();        // un message attendait -> connecte + parle
+      if (pendingText) await connect();
     } catch(e){ setStatus("ERREUR SDK: " + e.message); notify("error", "sdk:" + String(e)); }
   })();
 </script>
