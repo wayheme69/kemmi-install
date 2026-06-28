@@ -12,7 +12,7 @@
 </style>
 </head>
 <body>
-<video id="video" autoplay playsinline muted></video>
+<video id="video" autoplay playsinline></video>
 <div id="st">init…</div>
 <script>
   // ── Tout en script NORMAL : window.kemmi* défini IMMÉDIATEMENT (pas d'attente module).
@@ -48,7 +48,12 @@
     try {
       const token = await getToken();
       client = sdk.createClient(token, { disableInputAudio: true });
-      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ setStatus("EN DIRECT ✓"); notify("playing"); flush(); }); } catch(e){}
+      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{
+        const v = document.getElementById('video');
+        v.muted = false; v.volume = 1.0;        // RÉACTIVE le son de l'avatar
+        v.play().catch(()=>{});
+        setStatus("EN DIRECT ✓ (son ON)"); notify("playing"); flush();
+      }); } catch(e){}
       try { client.addListener('CONNECTION_CLOSED', ()=>{ notify("closed"); client=null; setStatus("fermée"); }); } catch(e){}
       await client.streamToVideoElement('video');
       clearTimeout(maxTimer); maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
