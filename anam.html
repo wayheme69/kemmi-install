@@ -50,6 +50,7 @@
       const CHUNK = 48000;                      // ~1s par paquet
       for (let i=0;i<pcm.length;i+=CHUNK){ stream.sendAudioChunk(pcm.subarray(i, i+CHUNK)); }
       stream.endSequence();
+      notify("speaking");                       // signal à l'app : elle commence à parler -> démarre le texte SYNCHRO
       const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{});
       showVideo(true); setStatus("EN DIRECT ✓"); hideStatusSoon();
     } catch(e){ setStatus("ERR audio: " + (e.message||e)); notify("error", String(e)); }
