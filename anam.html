@@ -64,17 +64,19 @@
       const token = await getToken();
       setStatus("2·client…");
       client = sdk.createClient(token, { disableInputAudio: true });
-      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{}); showVideo(true); notify("playing"); }); } catch(e){}
+      // On envoie le son SEULEMENT quand la vidéo joue vraiment (session pleinement prête) -> marche au 1er message.
+      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{}); showVideo(true); notify("playing"); feedAudio(); }); } catch(e){}
       try { client.addListener('CONNECTION_CLOSED', ()=>{ showVideo(false); notify("closed"); client=null; }); } catch(e){}
       setStatus("3·stream…");
       await Promise.race([
         client.streamToVideoElement('video'),
         new Promise((_,rej)=> setTimeout(()=>rej(new Error("stream timeout 20s")), 20000))
       ]);
-      setStatus("4·connecté");
+      setStatus("4·connecté (attente vidéo…)");
       clearTimeout(maxTimer); maxTimer = setTimeout(()=> window.kemmiStop(), MAX_SESSION_MS);
       notify("ready");
-      await feedAudio();                                           // un son attendait -> on le pousse
+      // filet de sécurité : si VIDEO_PLAY_STARTED ne se déclenche pas, on pousse le son après 1,8s
+      setTimeout(()=>{ if (pendingAudio && client) feedAudio(); }, 1800);
     } catch(e){ setStatus("ERR connect: " + (e.message||e)); notify("error", String(e)); client = null; }
     connecting = false;
   }
