@@ -27,6 +27,42 @@
   let liveShown = false, statsTimer = null, statsRAF = false;
   const $ = id => document.getElementById(id);
 
+  // ─── MOUCHARD FORMAT (version SÛRE, lecture seule) ───────────────────────────
+  // On NE wrappe PAS le constructeur (ça cassait la vidéo sur iOS). On pose juste une
+  // étiquette sur UNE méthode (setRemoteDescription) pour récupérer la connexion (this),
+  // puis on appelle l'originale TELLE QUELLE. Ensuite getStats() = lecture pure du format
+  // reçu (codec vidéo H264/VP8, résolution, i/s, débit ; codec audio Opus + Hz). -> Journal.
+  let capturedPC = null, reportDone = false, lastV = null;
+  try {
+    const proto = (window.RTCPeerConnection || window.webkitRTCPeerConnection).prototype;
+    const _srd = proto.setRemoteDescription;
+    proto.setRemoteDescription = function(){ capturedPC = this; return _srd.apply(this, arguments); };
+  } catch(e){}
+  async function reportFormat(){
+    if (!capturedPC){ notify("log","FORMAT: connexion non captée"); return; }
+    try {
+      const stats = await capturedPC.getStats();
+      const codecs = {}; let vIn=null, aIn=null;
+      stats.forEach(r=>{ if (r.type==='codec') codecs[r.id]=r; });
+      stats.forEach(r=>{
+        if (r.type==='inbound-rtp' && (r.kind==='video'||r.mediaType==='video')) vIn=r;
+        if (r.type==='inbound-rtp' && (r.kind==='audio'||r.mediaType==='audio')) aIn=r;
+      });
+      if (vIn){
+        const c = codecs[vIn.codecId];
+        let line = `VIDÉO reçue: ${c?c.mimeType:'?'}  ${vIn.frameWidth||'?'}x${vIn.frameHeight||'?'}  ${Math.round(vIn.framesPerSecond||0)} i/s`;
+        if (lastV && vIn.bytesReceived!=null && lastV.b!=null && vIn.timestamp>lastV.t){
+          const kbps = Math.round((vIn.bytesReceived-lastV.b)*8/1000 / ((vIn.timestamp-lastV.t)/1000));
+          line += `  ~${kbps} kbps`;
+        }
+        lastV = { b: vIn.bytesReceived, t: vIn.timestamp };
+        notify("log", line);
+      } else notify("log","VIDÉO: pas encore de stats");
+      if (aIn){ const c = codecs[aIn.codecId]; notify("log", `AUDIO reçu: ${c?c.mimeType:'?'}  ${c?c.clockRate:'?'} Hz`); }
+      else notify("log","AUDIO: pas encore de stats");
+    } catch(e){ notify("log","FORMAT erreur: "+(e.message||e)); }
+  }
+
   function setStatus(t){ try { const e=$('st'); e.textContent=t; e.style.opacity=1; } catch(e){} notify("log", t); }
   function hideStatusSoon(){ setTimeout(()=>{ try{ $('st').style.opacity=0; }catch(e){} }, 1500); }
   function showVideo(on){
@@ -38,6 +74,7 @@
         // après le fondu : on met en PAUSE la vidéo repos (cachée sous le live) -> 1 SEULE vidéo décodée -> fluide
         setTimeout(()=>{ if (liveShown && idle){ idle.pause(); notify("log","repos en pause (1 seule vidéo décodée)"); } }, 600);
         startStats();
+        if (!reportDone){ reportDone = true; setTimeout(reportFormat, 2500); setTimeout(reportFormat, 5000); }
       } else {
         if (idle) idle.play().catch(()=>{});   // live fini -> la repos respire à nouveau
         stopStats();
