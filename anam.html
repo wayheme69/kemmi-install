@@ -24,11 +24,39 @@
   const SPEAK_DELAY_MS = 1100;   // latence lip-sync Anam : on décale le texte pour qu'il colle au moment où le son SORT
 
   let sdk = null, client = null, connecting = false, pendingAudio = null, maxTimer = null, audioCtx = null, wantConnect = false;
+  let liveShown = false, statsTimer = null, lastDec = 0, lastDrop = 0;
   const $ = id => document.getElementById(id);
 
-  function setStatus(t){ try { const e=$('st'); e.textContent=t; e.style.opacity=1; } catch(e){} }
+  function setStatus(t){ try { const e=$('st'); e.textContent=t; e.style.opacity=1; } catch(e){} notify("log", t); }
   function hideStatusSoon(){ setTimeout(()=>{ try{ $('st').style.opacity=0; }catch(e){} }, 1500); }
-  function showVideo(on){ try { $('video').style.opacity = on ? 1 : 0; } catch(e){} }
+  function showVideo(on){
+    liveShown = on;
+    try { $('video').style.opacity = on ? 1 : 0; } catch(e){}
+    try {
+      const idle = $('idlevid');
+      if (on){
+        // après le fondu : on met en PAUSE la vidéo repos (cachée sous le live) -> 1 SEULE vidéo décodée -> fluide
+        setTimeout(()=>{ if (liveShown && idle){ idle.pause(); notify("log","repos en pause (1 seule vidéo décodée)"); } }, 600);
+        startStats();
+      } else {
+        if (idle) idle.play().catch(()=>{});   // live fini -> la repos respire à nouveau
+        stopStats();
+      }
+    } catch(e){}
+  }
+  // Compteur d'images (pour le debug) : combien d'images décodées vs PERDUES par seconde pendant qu'elle parle.
+  function startStats(){
+    stopStats(); lastDec = 0; lastDrop = 0;
+    statsTimer = setInterval(()=>{
+      try {
+        const v = $('video');
+        const dec = v.webkitDecodedFrameCount || 0, drop = v.webkitDroppedFrameCount || 0;
+        const dDec = dec - lastDec, dDrop = drop - lastDrop; lastDec = dec; lastDrop = drop;
+        notify("stats", JSON.stringify({ fps: dDec, perdues: dDrop, total_perdues: drop }));
+      } catch(e){}
+    }, 1000);
+  }
+  function stopStats(){ try { if (statsTimer){ clearInterval(statsTimer); statsTimer = null; } } catch(e){} }
   function notify(type, data){ try { window.webkit?.messageHandlers?.kemmi?.postMessage(JSON.stringify({type, data: data||""})); } catch(e){} }
   function b64ToBytes(b64){ const bin=atob(b64), n=bin.length, u=new Uint8Array(n); for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i); return u; }
   function getCtx(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate: 24000 }); return audioCtx; }
