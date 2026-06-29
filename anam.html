@@ -22,6 +22,7 @@
   const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyY2xicm1udXNpdmptZXZ3bnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NTEwNzEsImV4cCI6MjA4MjEyNzA3MX0.ul9cNCTscgfVR63PA802Yusu6nRH1289ruMwaoZImLw";
   const MAX_SESSION_MS = 150000;
   const SPEAK_DELAY_MS = 1100;   // latence lip-sync Anam : on décale le texte pour qu'il colle au moment où le son SORT
+  const VOICE_DELAY_MS = 1100;   // on décale NOTRE voix locale d'autant -> elle colle à la bouche (qui sort ~1,1s après l'envoi)
 
   let sdk = null, client = null, connecting = false, pendingAudio = null, maxTimer = null, audioCtx = null, wantConnect = false;
   let liveShown = false, statsTimer = null, statsRAF = false;
@@ -70,6 +71,33 @@
   function b64ToBytes(b64){ const bin=atob(b64), n=bin.length, u=new Uint8Array(n); for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i); return u; }
   function getCtx(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate: 24000 }); return audioCtx; }
 
+  // ─── VOIX LOCALE LISSE ───────────────────────────────────────────────────────
+  // La voix qui revient d'Anam saccade (le WebRTC du WKWebView sature). MAIS on a DÉJÀ
+  // le son sur le tel (OpenAI TTS). Donc : on coupe le son d'Anam (on garde juste la
+  // BOUCHE pour le lip-sync) et on joue NOTRE son NOUS-MÊMES, lisse. -> voix parfaite.
+  let localSrc = null;
+  function unlockAudio(){ try { const c=getCtx(); if(c.state==='suspended') c.resume().catch(()=>{}); } catch(e){} }
+  function pcmToBuffer(bytes){        // PCM 24kHz 16-bit mono little-endian -> AudioBuffer (PAS de decodeAudioData : il bloque sur iOS)
+    const c=getCtx();
+    const i16=new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length>>1);
+    const buf=c.createBuffer(1, i16.length, 24000);   // le buffer porte son propre 24kHz -> re-échantillonné si le contexte est à 48kHz
+    const ch=buf.getChannelData(0);
+    for(let i=0;i<i16.length;i++) ch[i]=i16[i]/32768;
+    return buf;
+  }
+  function playLocalAudio(buf, delayMs){
+    const c=getCtx();
+    const go=()=>{
+      try { if(localSrc) localSrc.stop(); } catch(e){}
+      try {
+        const s=c.createBufferSource(); s.buffer=buf; s.connect(c.destination);
+        s.start(c.currentTime + Math.max(0,(delayMs||0)/1000));   // décalé pour coller à la bouche
+        localSrc=s; notify("log","voix locale lisse jouée (+"+(delayMs||0)+"ms)");
+      } catch(e){ notify("error","voix locale: "+(e.message||e)); try{ $('video').muted=false; }catch(_){} }  // repli : on remet le son d'Anam
+    };
+    if(c.state==='suspended') c.resume().then(go).catch(go); else go();
+  }
+
   async function getToken(){
     const r = await fetch(TOKEN_URL, { method:"POST", headers:{ Authorization:`Bearer ${ANON}`, "Content-Type":"application/json" }});
     const j = await r.json();
@@ -84,6 +112,7 @@
     try {
       setStatus("5·envoi audio…");
       const pcm = b64ToBytes(b64);              // PCM brut 24kHz 16-bit mono -> AUCUN décodage
+      const localBuf = pcmToBuffer(pcm);        // copie LOCALE de NOTRE son (pour le jouer lisse en parallèle)
       const stream = client.createAgentAudioInputStream({ encoding:'pcm_s16le', sampleRate:24000, channels:1 });
       const CHUNK_MS = 200;
       const CHUNK = Math.floor(24000 * CHUNK_MS / 1000) * 2;   // 0.2s en octets (16-bit mono)
@@ -95,9 +124,10 @@
         catch(e){ setStatus("ERR audio: "+(e.message||e)); notify("error", String(e)); return; }
         off += CHUNK;
         if (first){ first = false;
-          const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{});
+          const v=$('video'); v.muted=true; v.play().catch(()=>{});   // on COUPE le son d'Anam (saccadé) -> on garde JUSTE la bouche
           showVideo(true); setStatus("EN DIRECT ✓"); hideStatusSoon();
-          setTimeout(()=>notify("speaking"), SPEAK_DELAY_MS);   // texte ~ quand le son sort vraiment (anti-décalage)
+          playLocalAudio(localBuf, VOICE_DELAY_MS);                    // NOTRE voix, LISSE, calée sur le moment où la bouche bouge
+          setTimeout(()=>notify("speaking"), SPEAK_DELAY_MS);         // texte ~ quand le son sort vraiment (anti-décalage)
         }
         setTimeout(sendNext, CHUNK_MS * 0.9);    // au rythme réel (léger avance) -> pas de rafale, plus fluide
       };
@@ -109,13 +139,14 @@
     if (connecting || client) return;
     if (!sdk){ setStatus("SDK pas prêt…"); return; }
     connecting = true;
+    unlockAudio();   // débloque le contexte audio AVANT de parler -> NOTRE voix locale pourra jouer tout de suite
     try {
       setStatus("1·token…");
       const token = await getToken();
       setStatus("2·client…");
       client = sdk.createClient(token, { disableInputAudio: true });
       // On envoie le son SEULEMENT quand la vidéo joue vraiment (session pleinement prête) -> marche au 1er message.
-      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{}); showVideo(true); notify("playing"); feedAudio(); }); } catch(e){}
+      try { client.addListener('VIDEO_PLAY_STARTED', ()=>{ const v=$('video'); v.muted=true; v.play().catch(()=>{}); showVideo(true); notify("playing"); feedAudio(); }); } catch(e){}   // muet : la voix vient de NOTRE lecture locale
       try { client.addListener('CONNECTION_CLOSED', ()=>{ showVideo(false); notify("closed"); client=null; }); } catch(e){}
       setStatus("3·stream…");
       await Promise.race([
@@ -146,6 +177,7 @@
   // L'app envoie NOTRE son (base64 mp3/aac d'OpenAI TTS) -> elle le dit avec lip-sync.
   window.kemmiSpeakAudio = async function(base64audio){
     pendingAudio = base64audio;
+    unlockAudio();
     if (!sdk){ setStatus("chargement…"); return; }
     if (client){ await feedAudio(); }
     else if (!connecting){ await connect(); }
@@ -154,11 +186,13 @@
   // PRÉ-CONNEXION (warm-up) : ouvre la session AVANT qu'elle parle -> 1er message fluide.
   window.kemmiConnect = function(){
     wantConnect = true;
+    unlockAudio();
     if (sdk && !client && !connecting) connect();
   };
 
   window.kemmiStop = async function(){
     clearTimeout(maxTimer); showVideo(false);
+    try { if (localSrc){ localSrc.stop(); localSrc = null; } } catch(e){}   // coupe NOTRE voix locale
     try { if (client) await client.stopStreaming(); } catch(e){}
     client = null; pendingAudio = null; notify("closed");
   };
