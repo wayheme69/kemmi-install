@@ -23,7 +23,7 @@
   const MAX_SESSION_MS = 150000;
   const SPEAK_DELAY_MS = 1100;   // latence lip-sync Anam : on décale le texte pour qu'il colle au moment où le son SORT
 
-  let sdk = null, client = null, connecting = false, pendingAudio = null, maxTimer = null, audioCtx = null;
+  let sdk = null, client = null, connecting = false, pendingAudio = null, maxTimer = null, audioCtx = null, wantConnect = false;
   const $ = id => document.getElementById(id);
 
   function setStatus(t){ try { const e=$('st'); e.textContent=t; e.style.opacity=1; } catch(e){} }
@@ -102,6 +102,12 @@
     else if (!connecting){ await connect(); }
   };
 
+  // PRÉ-CONNEXION (warm-up) : ouvre la session AVANT qu'elle parle -> 1er message fluide.
+  window.kemmiConnect = function(){
+    wantConnect = true;
+    if (sdk && !client && !connecting) connect();
+  };
+
   window.kemmiStop = async function(){
     clearTimeout(maxTimer); showVideo(false);
     try { if (client) await client.stopStreaming(); } catch(e){}
@@ -113,7 +119,7 @@
     try {
       sdk = await import("https://esm.sh/@anam-ai/js-sdk");
       setStatus("prêt"); hideStatusSoon(); notify("loaded");
-      if (pendingAudio) await connect();
+      if (pendingAudio || wantConnect) await connect();
     } catch(e){ setStatus("ERREUR SDK: " + e.message); notify("error", "sdk:" + String(e)); }
   })();
 </script>
