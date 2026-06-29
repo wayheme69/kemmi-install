@@ -16,6 +16,7 @@
 <body>
 <video id="idlevid" src="avatar_idle_v8.mp4" poster="avatar_poster_v8.jpg" preload="auto" loop muted autoplay playsinline></video>
 <video id="video" autoplay playsinline></video>
+<audio id="voice" playsinline></audio>
 <div id="st">init…</div>
 <script>
   const TOKEN_URL = "https://erclbrmnusivjmevwnsq.supabase.co/functions/v1/anam-session-token";
@@ -74,28 +75,38 @@
   // ─── VOIX LOCALE LISSE ───────────────────────────────────────────────────────
   // La voix qui revient d'Anam saccade (le WebRTC du WKWebView sature). MAIS on a DÉJÀ
   // le son sur le tel (OpenAI TTS). Donc : on coupe le son d'Anam (on garde juste la
-  // BOUCHE pour le lip-sync) et on joue NOTRE son NOUS-MÊMES, lisse. -> voix parfaite.
-  let localSrc = null;
-  function unlockAudio(){ try { const c=getCtx(); if(c.state==='suspended') c.resume().catch(()=>{}); } catch(e){} }
-  function pcmToBuffer(bytes){        // PCM 24kHz 16-bit mono little-endian -> AudioBuffer (PAS de decodeAudioData : il bloque sur iOS)
-    const c=getCtx();
-    const i16=new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length>>1);
-    const buf=c.createBuffer(1, i16.length, 24000);   // le buffer porte son propre 24kHz -> re-échantillonné si le contexte est à 48kHz
-    const ch=buf.getChannelData(0);
-    for(let i=0;i<i16.length;i++) ch[i]=i16[i]/32768;
-    return buf;
+  // BOUCHE pour le lip-sync) et on rejoue NOTRE son via un élément <audio>. -> voix lisse.
+  // ⚠️ On N'utilise PAS Web Audio API : sur iOS son AudioContext reste 'suspended' hors
+  //    geste tactile -> ça jouait DANS LE VIDE = plus aucune voix. L'élément <audio> est
+  //    autorisé à jouer (mediaTypesRequiringUserActionForPlayback=[]) = même chemin média
+  //    que la vidéo dont le son était audible avant. Fiable.
+  let voiceUrl = null;
+  function unlockAudio(){}   // (plus nécessaire : <audio> n'a pas besoin de déblocage)
+  function pcmToWavUrl(pcm){          // PCM 16-bit mono 24kHz -> WAV (Blob URL)
+    const sr=24000, ch=1, bps=16, dataLen=pcm.length;
+    const buf=new ArrayBuffer(44+dataLen), dv=new DataView(buf);
+    const ws=(o,s)=>{ for(let i=0;i<s.length;i++) dv.setUint8(o+i, s.charCodeAt(i)); };
+    ws(0,'RIFF'); dv.setUint32(4,36+dataLen,true); ws(8,'WAVE');
+    ws(12,'fmt '); dv.setUint32(16,16,true); dv.setUint16(20,1,true);
+    dv.setUint16(22,ch,true); dv.setUint32(24,sr,true);
+    dv.setUint32(28,sr*ch*bps/8,true); dv.setUint16(32,ch*bps/8,true); dv.setUint16(34,bps,true);
+    ws(36,'data'); dv.setUint32(40,dataLen,true);
+    new Uint8Array(buf,44).set(pcm);
+    return URL.createObjectURL(new Blob([buf],{type:'audio/wav'}));
   }
-  function playLocalAudio(buf, delayMs){
-    const c=getCtx();
-    const go=()=>{
-      try { if(localSrc) localSrc.stop(); } catch(e){}
+  function playLocalAudio(pcm, delayMs){
+    const a=$('voice'); if(!a) return;
+    try { if(voiceUrl) URL.revokeObjectURL(voiceUrl); } catch(e){}
+    voiceUrl=pcmToWavUrl(pcm); a.src=voiceUrl; a.muted=false; a.volume=1.0;
+    const fallback=(e)=>{ notify("error","voix locale KO -> on remet le son d'Anam: "+(e&&(e.message||e))); try{ $('video').muted=false; }catch(_){} };
+    setTimeout(()=>{
       try {
-        const s=c.createBufferSource(); s.buffer=buf; s.connect(c.destination);
-        s.start(c.currentTime + Math.max(0,(delayMs||0)/1000));   // décalé pour coller à la bouche
-        localSrc=s; notify("log","voix locale lisse jouée (+"+(delayMs||0)+"ms)");
-      } catch(e){ notify("error","voix locale: "+(e.message||e)); try{ $('video').muted=false; }catch(_){} }  // repli : on remet le son d'Anam
-    };
-    if(c.state==='suspended') c.resume().then(go).catch(go); else go();
+        a.currentTime=0;
+        const p=a.play();
+        if(p&&p.catch) p.catch(fallback);
+        notify("log","voix locale lisse jouée (+"+(delayMs||0)+"ms)");
+      } catch(e){ fallback(e); }
+    }, Math.max(0, delayMs||0));   // décalée pour coller à la bouche
   }
 
   async function getToken(){
@@ -112,7 +123,6 @@
     try {
       setStatus("5·envoi audio…");
       const pcm = b64ToBytes(b64);              // PCM brut 24kHz 16-bit mono -> AUCUN décodage
-      const localBuf = pcmToBuffer(pcm);        // copie LOCALE de NOTRE son (pour le jouer lisse en parallèle)
       const stream = client.createAgentAudioInputStream({ encoding:'pcm_s16le', sampleRate:24000, channels:1 });
       const CHUNK_MS = 200;
       const CHUNK = Math.floor(24000 * CHUNK_MS / 1000) * 2;   // 0.2s en octets (16-bit mono)
@@ -126,7 +136,7 @@
         if (first){ first = false;
           const v=$('video'); v.muted=true; v.play().catch(()=>{});   // on COUPE le son d'Anam (saccadé) -> on garde JUSTE la bouche
           showVideo(true); setStatus("EN DIRECT ✓"); hideStatusSoon();
-          playLocalAudio(localBuf, VOICE_DELAY_MS);                    // NOTRE voix, LISSE, calée sur le moment où la bouche bouge
+          playLocalAudio(pcm, VOICE_DELAY_MS);                         // NOTRE voix, LISSE, calée sur le moment où la bouche bouge
           setTimeout(()=>notify("speaking"), SPEAK_DELAY_MS);         // texte ~ quand le son sort vraiment (anti-décalage)
         }
         setTimeout(sendNext, CHUNK_MS * 0.9);    // au rythme réel (léger avance) -> pas de rafale, plus fluide
@@ -192,7 +202,7 @@
 
   window.kemmiStop = async function(){
     clearTimeout(maxTimer); showVideo(false);
-    try { if (localSrc){ localSrc.stop(); localSrc = null; } } catch(e){}   // coupe NOTRE voix locale
+    try { const a=$('voice'); if(a){ a.pause(); a.removeAttribute('src'); a.load(); } } catch(e){}   // coupe NOTRE voix locale
     try { if (client) await client.stopStreaming(); } catch(e){}
     client = null; pendingAudio = null; notify("closed");
   };
