@@ -5,13 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
 <title>KEMMI Avatar</title>
 <style>
-  html,body{margin:0;padding:0;height:100%;width:100%;
-    background:radial-gradient(115% 80% at 50% 30%, #eef1f5 0%, #e1e4e9 58%, #d8dbe1 100%);overflow:hidden;}  /* halo doux */
-  #poster,#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-    -webkit-mask-image:linear-gradient(to bottom,#000 76%,rgba(0,0,0,0) 100%);
-            mask-image:linear-gradient(to bottom,#000 76%,rgba(0,0,0,0) 100%);}  /* fondu doux en bas (pas de coupure nette) */
-  #poster{z-index:1;}                                                /* image portrait au repos : FIXE et stable (pas de mouvement) */
-  #video{z-index:2;opacity:0;transition:opacity .45s ease;background:transparent;}  /* live : respire + parle pour de vrai */
+  html,body{margin:0;padding:0;height:100%;width:100%;background:#dddfe4;overflow:hidden;}
+  #poster,#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  #poster{z-index:1;}                                                /* image portrait au repos (fixe) */
+  #video{z-index:2;opacity:0;transition:opacity .45s ease;background:transparent;}  /* live : respire + parle */
   #st{position:absolute;top:0;left:0;right:0;text-align:center;font:600 12px -apple-system,sans-serif;
       color:#fff;background:rgba(0,0,0,.5);padding:3px 0;z-index:9;transition:opacity .4s;}
 </style>
