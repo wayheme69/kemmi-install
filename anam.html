@@ -18,31 +18,6 @@
 <video id="video" autoplay playsinline></video>
 <div id="st">init…</div>
 <script>
-  // ===== TON IDÉE : tampon (buffer) ~1s sur la vidéo temps réel =====
-  // On intercepte la connexion WebRTC d'Anam et on demande au téléphone de GARDER ~1s d'avance
-  // avant de jouer (jitterBufferTarget). Ça absorbe les "trous" de connexion -> plus fluide.
-  // (Si iOS ne supporte pas, ça ne casse rien : on tente juste.)
-  (function(){
-    const Orig = window.RTCPeerConnection || window.webkitRTCPeerConnection;
-    if (!Orig) return;
-    const BUFFER_MS = 1000;   // ~1s d'avance (ajustable)
-    function Patched(){
-      const pc = new Orig(...arguments);
-      const apply = () => { try { pc.getReceivers().forEach(r => {
-        if (r && r.track && r.track.kind === 'video'){
-          try { if ('jitterBufferTarget' in r) r.jitterBufferTarget = BUFFER_MS; } catch(e){}
-          try { if ('playoutDelayHint' in r) r.playoutDelayHint = BUFFER_MS/1000; } catch(e){}
-        }
-      }); } catch(e){} };
-      pc.addEventListener('track', () => { apply(); [400,1000,2000].forEach(d=>setTimeout(apply,d)); });
-      return pc;
-    }
-    Patched.prototype = Orig.prototype;
-    if (Orig.generateCertificate) Patched.generateCertificate = Orig.generateCertificate.bind(Orig);
-    window.RTCPeerConnection = Patched;
-    window.webkitRTCPeerConnection = Patched;
-  })();
-
   const TOKEN_URL = "https://erclbrmnusivjmevwnsq.supabase.co/functions/v1/anam-session-token";
   const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyY2xicm1udXNpdmptZXZ3bnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NTEwNzEsImV4cCI6MjA4MjEyNzA3MX0.ul9cNCTscgfVR63PA802Yusu6nRH1289ruMwaoZImLw";
   const MAX_SESSION_MS = 150000;
