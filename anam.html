@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<video id="idlevid" src="avatar_idle_portrait.mp4" poster="avatar_poster.jpg" loop muted autoplay playsinline></video>
+<video id="idlevid" src="avatar_idle_v2.mp4" poster="avatar_poster_v2.jpg" preload="auto" loop muted autoplay playsinline></video>
 <video id="video" autoplay playsinline></video>
 <div id="st">init…</div>
 <script>
@@ -113,6 +113,12 @@
     try { if (client) await client.stopStreaming(); } catch(e){}
     client = null; pendingAudio = null; notify("closed");
   };
+
+  // Force la lecture de la vidéo de repos (iOS WKWebView : l'autoplay seul est parfois ignoré -> elle restait figée).
+  function startIdle(){ try{ const v=$('idlevid'); if(v){ v.muted=true; v.loop=true; const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }catch(e){} }
+  startIdle();
+  [300, 900, 2000, 4000].forEach(d => setTimeout(startIdle, d));
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) startIdle(); });
 
   (async () => {
     setStatus("chargement…");
