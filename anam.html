@@ -27,47 +27,6 @@
   let liveShown = false, statsTimer = null, statsRAF = false;
   const $ = id => document.getElementById(id);
 
-  // ─── MOUCHARD FORMAT (diagnostic) ────────────────────────────────────────────
-  // On capture la connexion WebRTC créée par le SDK Anam (en interceptant RTCPeerConnection
-  // AVANT que le SDK ne soit importé) pour lire le format RÉEL reçu : codec vidéo (H264/VP8),
-  // résolution, images/s, débit ; codec audio (opus) + fréquence. -> Journal / Debug.
-  let capturedPC = null, reportDone = false, lastV = null;
-  (function(){
-    const _PC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
-    if (!_PC) return;
-    function Patched(){ const pc = new _PC(...arguments); capturedPC = pc; return pc; }
-    Patched.prototype = _PC.prototype;
-    try { Object.setPrototypeOf(Patched, _PC); } catch(e){}
-    window.RTCPeerConnection = Patched;
-    try { window.webkitRTCPeerConnection = Patched; } catch(e){}
-  })();
-  async function reportFormat(){
-    if (!capturedPC){ notify("log","FORMAT: pas de connexion WebRTC captée"); return; }
-    try {
-      const stats = await capturedPC.getStats();
-      const codecs = {}; let vIn=null, aIn=null;
-      stats.forEach(r=>{ if (r.type==='codec') codecs[r.id]=r; });
-      stats.forEach(r=>{
-        if (r.type==='inbound-rtp' && (r.kind==='video'||r.mediaType==='video')) vIn=r;
-        if (r.type==='inbound-rtp' && (r.kind==='audio'||r.mediaType==='audio')) aIn=r;
-      });
-      if (vIn){
-        const c = codecs[vIn.codecId];
-        let line = `VIDÉO reçue: ${c?c.mimeType:'?'}  ${vIn.frameWidth||'?'}x${vIn.frameHeight||'?'}  ${Math.round(vIn.framesPerSecond||0)} i/s`;
-        if (lastV && vIn.bytesReceived!=null && lastV.b!=null && vIn.timestamp>lastV.t){
-          const kbps = Math.round((vIn.bytesReceived-lastV.b)*8/1000 / ((vIn.timestamp-lastV.t)/1000));
-          line += `  ~${kbps} kbps`;
-        }
-        lastV = { b: vIn.bytesReceived, t: vIn.timestamp };
-        notify("log", line);
-      } else notify("log","VIDÉO: pas encore de stats");
-      if (aIn){
-        const c = codecs[aIn.codecId];
-        notify("log", `AUDIO reçu: ${c?c.mimeType:'?'}  ${c?c.clockRate:'?'} Hz`);
-      } else notify("log","AUDIO: pas encore de stats");
-    } catch(e){ notify("log","FORMAT erreur: "+(e.message||e)); }
-  }
-
   function setStatus(t){ try { const e=$('st'); e.textContent=t; e.style.opacity=1; } catch(e){} notify("log", t); }
   function hideStatusSoon(){ setTimeout(()=>{ try{ $('st').style.opacity=0; }catch(e){} }, 1500); }
   function showVideo(on){
@@ -79,8 +38,6 @@
         // après le fondu : on met en PAUSE la vidéo repos (cachée sous le live) -> 1 SEULE vidéo décodée -> fluide
         setTimeout(()=>{ if (liveShown && idle){ idle.pause(); notify("log","repos en pause (1 seule vidéo décodée)"); } }, 600);
         startStats();
-        // mouchard format : 2 mesures (la 2e donne le débit via le delta) — 1 fois par session
-        if (!reportDone){ reportDone = true; setTimeout(reportFormat, 2500); setTimeout(reportFormat, 5000); }
       } else {
         if (idle) idle.play().catch(()=>{});   // live fini -> la repos respire à nouveau
         stopStats();
