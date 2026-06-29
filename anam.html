@@ -6,7 +6,7 @@
 <title>KEMMI Avatar</title>
 <style>
   html,body{margin:0;padding:0;height:100%;width:100%;background:#dddfe4;overflow:hidden;}
-  #poster,#video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}  /* portrait : tête + buste */
+  #poster,#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}  /* portrait PLUS GRAND : remplit la largeur (marges rognées) */
   #poster{z-index:1;}                                                /* image portrait au repos (session fermée) */
   #video{z-index:2;opacity:0;transition:opacity .45s ease;background:transparent;}  /* live portrait : respire + parle */
   #st{position:absolute;top:0;left:0;right:0;text-align:center;font:600 12px -apple-system,sans-serif;
@@ -21,6 +21,7 @@
   const TOKEN_URL = "https://erclbrmnusivjmevwnsq.supabase.co/functions/v1/anam-session-token";
   const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyY2xicm1udXNpdmptZXZ3bnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NTEwNzEsImV4cCI6MjA4MjEyNzA3MX0.ul9cNCTscgfVR63PA802Yusu6nRH1289ruMwaoZImLw";
   const MAX_SESSION_MS = 150000;
+  const SPEAK_DELAY_MS = 1100;   // latence lip-sync Anam : on décale le texte pour qu'il colle au moment où le son SORT
 
   let sdk = null, client = null, connecting = false, pendingAudio = null, maxTimer = null, audioCtx = null;
   const $ = id => document.getElementById(id);
@@ -57,9 +58,9 @@
         catch(e){ setStatus("ERR audio: "+(e.message||e)); notify("error", String(e)); return; }
         off += CHUNK;
         if (first){ first = false;
-          notify("speaking");                   // dès le 1er paquet -> texte synchro
           const v=$('video'); v.muted=false; v.volume=1.0; v.play().catch(()=>{});
           showVideo(true); setStatus("EN DIRECT ✓"); hideStatusSoon();
+          setTimeout(()=>notify("speaking"), SPEAK_DELAY_MS);   // texte ~ quand le son sort vraiment (anti-décalage)
         }
         setTimeout(sendNext, CHUNK_MS * 0.9);    // au rythme réel (léger avance) -> pas de rafale, plus fluide
       };
