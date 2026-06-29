@@ -24,7 +24,7 @@
   const SPEAK_DELAY_MS = 1100;   // latence lip-sync Anam : on décale le texte pour qu'il colle au moment où le son SORT
 
   let sdk = null, client = null, connecting = false, pendingAudio = null, maxTimer = null, audioCtx = null, wantConnect = false;
-  let liveShown = false, statsTimer = null, lastDec = 0, lastDrop = 0;
+  let liveShown = false, statsTimer = null, statsRAF = false;
   const $ = id => document.getElementById(id);
 
   function setStatus(t){ try { const e=$('st'); e.textContent=t; e.style.opacity=1; } catch(e){} notify("log", t); }
@@ -44,19 +44,28 @@
       }
     } catch(e){}
   }
-  // Compteur d'images (pour le debug) : combien d'images décodées vs PERDUES par seconde pendant qu'elle parle.
+  // Compteur d'images RÉELLEMENT affichées (requestVideoFrameCallback -> marche pour le WebRTC).
+  // fps stable ~25-30 = fluide ; fps qui chute = saccade. "perdues" = images sous la cible 25/s.
   function startStats(){
-    stopStats(); lastDec = 0; lastDrop = 0;
-    statsTimer = setInterval(()=>{
-      try {
-        const v = $('video');
-        const dec = v.webkitDecodedFrameCount || 0, drop = v.webkitDroppedFrameCount || 0;
-        const dDec = dec - lastDec, dDrop = drop - lastDrop; lastDec = dec; lastDrop = drop;
-        notify("stats", JSON.stringify({ fps: dDec, perdues: dDrop, total_perdues: drop }));
-      } catch(e){}
-    }, 1000);
+    stopStats();
+    const v = $('video');
+    if (!v || !v.requestVideoFrameCallback){ notify("log","rVFC non supporté -> pas de mesure fps"); return; }
+    statsRAF = true;
+    let count = 0, t0 = performance.now(), totalLow = 0;
+    const onFrame = (now) => {
+      count++;
+      if (now - t0 >= 1000){
+        const fps = Math.round(count * 1000 / (now - t0));
+        count = 0; t0 = now;
+        const perdues = Math.max(0, 25 - fps);   // sous 25 images/s = ça saccade
+        totalLow += perdues;
+        notify("stats", JSON.stringify({ fps: fps, perdues: perdues, total_perdues: totalLow }));
+      }
+      if (statsRAF && v.requestVideoFrameCallback) v.requestVideoFrameCallback(onFrame);
+    };
+    v.requestVideoFrameCallback(onFrame);
   }
-  function stopStats(){ try { if (statsTimer){ clearInterval(statsTimer); statsTimer = null; } } catch(e){} }
+  function stopStats(){ statsRAF = false; try { if (statsTimer){ clearInterval(statsTimer); statsTimer = null; } } catch(e){} }
   function notify(type, data){ try { window.webkit?.messageHandlers?.kemmi?.postMessage(JSON.stringify({type, data: data||""})); } catch(e){} }
   function b64ToBytes(b64){ const bin=atob(b64), n=bin.length, u=new Uint8Array(n); for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i); return u; }
   function getCtx(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate: 24000 }); return audioCtx; }
