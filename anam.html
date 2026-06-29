@@ -68,7 +68,7 @@
     } catch(e){ setStatus("ERR audio: " + (e.message||e)); notify("error", String(e)); }
   }
 
-  async function connect(){
+  async function connect(retried){
     if (connecting || client) return;
     if (!sdk){ setStatus("SDK pas prêt…"); return; }
     connecting = true;
@@ -90,7 +90,19 @@
       notify("ready");
       // filet de sécurité : si VIDEO_PLAY_STARTED ne se déclenche pas, on pousse le son après 1,8s
       setTimeout(()=>{ if (pendingAudio && client) feedAudio(); }, 1800);
-    } catch(e){ setStatus("ERR connect: " + (e.message||e)); notify("error", String(e)); client = null; }
+    } catch(e){
+      const msg = String(e.message||e);
+      try { if (client) await client.stopStreaming(); } catch(_){}   // ferme proprement l'éventuelle session
+      client = null; connecting = false;
+      // 1 SEULE session à la fois : si "concurrency/limit", on attend qu'elle se ferme + on réessaie UNE fois.
+      if (!retried && /concurren|limit reached|too many|in use|already/i.test(msg)){
+        setStatus("session occupée, réessai dans 4s…");
+        setTimeout(()=>{ if (pendingAudio || wantConnect) connect(true); }, 4000);
+        return;
+      }
+      setStatus("ERR connect: " + msg); notify("error", msg);
+      return;
+    }
     connecting = false;
   }
 
