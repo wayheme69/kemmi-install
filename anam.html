@@ -6,15 +6,15 @@
 <title>KEMMI Avatar</title>
 <style>
   html,body{margin:0;padding:0;height:100%;width:100%;background:#dddfe4;overflow:hidden;}
-  #idle,#video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}  /* tout afficher : tête + buste + marge */
-  #idle{z-index:1;}                                                  /* vidéo de repos qui RESPIRE (vivante) */
-  #video{z-index:2;opacity:0;transition:opacity .45s ease;background:transparent;}  /* live quand elle parle */
+  #poster,#video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}  /* portrait : tête + buste */
+  #poster{z-index:1;}                                                /* image portrait au repos (session fermée) */
+  #video{z-index:2;opacity:0;transition:opacity .45s ease;background:transparent;}  /* live portrait : respire + parle */
   #st{position:absolute;top:0;left:0;right:0;text-align:center;font:600 12px -apple-system,sans-serif;
       color:#fff;background:rgba(0,0,0,.5);padding:3px 0;z-index:9;transition:opacity .4s;}
 </style>
 </head>
 <body>
-<video id="idle" src="avatar_idle.mp4" loop muted autoplay playsinline></video>
+<img id="poster" src="avatar_poster.jpg" alt=""/>
 <video id="video" autoplay playsinline></video>
 <div id="st">init…</div>
 <script>
