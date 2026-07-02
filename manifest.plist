@@ -15,7 +15,7 @@
       <key>metadata</key>
       <dict>
         <key>bundle-identifier</key><string>com.digitalappllc.KEMMI</string>
-        <key>bundle-version</key><string>69</string>
+        <key>bundle-version</key><string>70</string>
         <key>kind</key><string>software</string>
         <key>title</key><string>KEMMI</string>
       </dict>
