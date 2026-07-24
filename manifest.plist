@@ -9,13 +9,13 @@
       <array>
         <dict>
           <key>kind</key><string>software-package</string>
-          <key>url</key><string>https://github.com/wayheme69/kemmi-install/releases/download/b156/KEMMI.ipa</string>
+          <key>url</key><string>https://github.com/wayheme69/kemmi-install/releases/download/b157/KEMMI.ipa</string>
         </dict>
       </array>
       <key>metadata</key>
       <dict>
         <key>bundle-identifier</key><string>com.digitalappllc.KEMMI</string>
-        <key>bundle-version</key><string>156</string>
+        <key>bundle-version</key><string>157</string>
         <key>kind</key><string>software</string>
         <key>title</key><string>KEMMI</string>
       </dict>
